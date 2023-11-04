@@ -1,0 +1,8 @@
+[package]
+name = "Research"
+version = "0.1.0"
+authors = ["Novice <chrisfx@umich.edu>"]
+
+[dependencies]
+core_affinity = "0.8"
+rand = "0.8"
