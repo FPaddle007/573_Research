@@ -1,6 +1,5 @@
 // Link to the following GitHub Code
 // https://github.com/yadav-sachin/spectre-attack
-// test comment for video purposes
 
 #include <bits/stdc++.h>
 #include <x86intrin.h> /* For counting the number of cycles in fetching memory and flushing cache */
